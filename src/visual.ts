@@ -167,7 +167,6 @@ export class PowerKPIMatrix implements powerbi.extensibility.visual.IVisual {
             : { height: 0, width: 0 };
 
         const settings: Settings = (Settings.getDefault() as Settings).parse(dataView);
-
         this.stateService.parse(settings.internalState);
 
         this.converterOptions = {
@@ -183,8 +182,38 @@ export class PowerKPIMatrix implements powerbi.extensibility.visual.IVisual {
 
         this.stateService.states.columnMapping.applyDefaultRows(columnSet[actualValueColumn.name]);
 
-        const dataRepresentation: IDataRepresentation = this.dataDirector.convert(this.converterOptions);
+        const actualValueCol = this.converterOptions.dataView.metadata.columns.find(x => Object.keys(x.roles).includes('actualValue')).index;
+        const categoryCol = this.converterOptions.dataView.metadata.columns.find(x => Object.keys(x.roles).includes('rowBasedMetricNameColumn')).index;
+        const dateCol = this.converterOptions.dataView.metadata.columns.find(x => Object.keys(x.roles).includes('date')).index;
 
+        const rowLen = this.converterOptions.dataView.table.rows[0].length;
+        const allDates = Array.from(new Set(this.converterOptions.dataView.table.rows.map(x => x[dateCol])));
+        const allCats = Array.from(new Set(this.converterOptions.dataView.table.rows.map(x => x[categoryCol])));
+        let extraData = [];  // it would be silly to append in the loops because then we'd search through data we know couldn't match
+        for(let i=0;i<allDates.length;i++){
+            let dat = allDates[i];
+            for(let j=0;j<allCats.length;j++){
+                let cat = allCats[j];
+                if(!this.converterOptions.dataView.table.rows.some(x => x[dateCol] === dat && x[categoryCol] === cat)){
+                    let newRow = new Array(rowLen).fill(null);
+                    newRow[dateCol] = dat;
+                    newRow[categoryCol] = cat;
+                    newRow[actualValueCol] = Number.EPSILON;  // essentially zero, but won't be filtered
+                    extraData.push(newRow)
+                }
+            }
+        }
+        this.converterOptions.dataView.table.rows = this.converterOptions.dataView.table.rows.concat(extraData);
+
+        const dataRepresentation: IDataRepresentation = this.dataDirector.convert(this.converterOptions);
+        dataRepresentation.seriesArray.forEach(function(serie){
+            if(serie.currentValue === Number.EPSILON){
+                serie.currentValue = 0;
+            }
+            serie.points[0].points.forEach(function(point){
+                point.value = (point.value === Number.EPSILON) ? 0 : point.value;
+            })
+        })
         const isAdvancedEditModeTurnedOn: boolean = options.editMode === powerbi.EditMode.Advanced
             && dataRepresentation.isDataColumnBasedModel;
 
@@ -216,7 +245,6 @@ export class PowerKPIMatrix implements powerbi.extensibility.visual.IVisual {
             settings,
             viewport,
         };
-
         this.component.render(this.renderOptions);
 
         if (this.stateService.states.settings.hasBeenUpdated

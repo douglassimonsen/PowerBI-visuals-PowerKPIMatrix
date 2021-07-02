@@ -51,7 +51,7 @@
     "less": "^3.9.0",
     "less-loader": "^4.1.0",
     "mini-css-extract-plugin": "^0.5.0",
-    "powerbi-visuals-api": "~2.5.0",
+    "powerbi-visuals-api": "^3.8.2",
     "powerbi-visuals-powerkpi": "https://github.com/microsoft/PowerBI-visuals-PowerKPI",
     "powerbi-visuals-tools": "^3.1.2",
     "powerbi-visuals-utils-testutils": "^2.2.0",
