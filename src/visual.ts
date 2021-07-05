@@ -76,7 +76,7 @@ import { Settings } from "./settings/settings";
 
 import { PowerKPIComponent } from "./visualComponent/dynamic/powerKPIComponent";
 
-export class PowerKPIMatrix implements powerbi.extensibility.visual.IVisual {
+export class PowerKPIMattrix implements powerbi.extensibility.visual.IVisual {
     private columnSetConverter: IConverter<IDataRepresentationColumnSet>;
     private dataDirector: DataDirector<IDataRepresentation>;
     private stateService: StateService;
@@ -182,28 +182,35 @@ export class PowerKPIMatrix implements powerbi.extensibility.visual.IVisual {
 
         this.stateService.states.columnMapping.applyDefaultRows(columnSet[actualValueColumn.name]);
 
-        const actualValueCol = this.converterOptions.dataView.metadata.columns.find(x => Object.keys(x.roles).includes('actualValue')).index;
-        const categoryCol = this.converterOptions.dataView.metadata.columns.find(x => Object.keys(x.roles).includes('rowBasedMetricNameColumn')).index;
-        const dateCol = this.converterOptions.dataView.metadata.columns.find(x => Object.keys(x.roles).includes('date')).index;
+        const actualValueCol = this.converterOptions.dataView.metadata.columns.find(x => Object.keys(x.roles).includes('actualValue'))?.index;
+        const categoryCol = this.converterOptions.dataView.metadata.columns.find(x => Object.keys(x.roles).includes('rowBasedMetricNameColumn'))?.index;
+        const dateCol = this.converterOptions.dataView.metadata.columns.find(x => Object.keys(x.roles).includes('date'))?.index;
 
-        const rowLen = this.converterOptions.dataView.table.rows[0].length;
-        const allDates = Array.from(new Set(this.converterOptions.dataView.table.rows.map(x => x[dateCol])));
-        const allCats = Array.from(new Set(this.converterOptions.dataView.table.rows.map(x => x[categoryCol])));
-        let extraData = [];  // it would be silly to append in the loops because then we'd search through data we know couldn't match
-        for(let i=0;i<allDates.length;i++){
-            let dat = allDates[i];
-            for(let j=0;j<allCats.length;j++){
-                let cat = allCats[j];
-                if(!this.converterOptions.dataView.table.rows.some(x => x[dateCol] === dat && x[categoryCol] === cat)){
-                    let newRow = new Array(rowLen).fill(null);
-                    newRow[dateCol] = dat;
-                    newRow[categoryCol] = cat;
-                    newRow[actualValueCol] = Number.EPSILON;  // essentially zero, but won't be filtered
-                    extraData.push(newRow)
+        var rowLen: number;
+        try{
+            rowLen = this.converterOptions.dataView.table.rows[0].length;
+        } catch {
+            rowLen = undefined;
+        }
+        if(actualValueCol !== undefined && categoryCol !== undefined && dateCol !== undefined && rowLen !== undefined){
+            const allDates = Array.from(new Set(this.converterOptions.dataView.table.rows.map(x => x[dateCol])));
+            const allCats = Array.from(new Set(this.converterOptions.dataView.table.rows.map(x => x[categoryCol])));
+            let extraData = [];  // it would be silly to append in the loops because then we'd search through data we know couldn't match
+            for(let i=0;i<allDates.length;i++){
+                let dat = allDates[i];
+                for(let j=0;j<allCats.length;j++){
+                    let cat = allCats[j];
+                    if(!this.converterOptions.dataView.table.rows.some(x => x[dateCol] === dat && x[categoryCol] === cat)){
+                        let newRow = new Array(rowLen).fill(null);
+                        newRow[dateCol] = dat;
+                        newRow[categoryCol] = cat;
+                        newRow[actualValueCol] = Number.EPSILON;  // essentially zero, but won't be filtered
+                        extraData.push(newRow)
+                    }
                 }
             }
+            this.converterOptions.dataView.table.rows = this.converterOptions.dataView.table.rows.concat(extraData);
         }
-        this.converterOptions.dataView.table.rows = this.converterOptions.dataView.table.rows.concat(extraData);
 
         const dataRepresentation: IDataRepresentation = this.dataDirector.convert(this.converterOptions);
         dataRepresentation.seriesArray.forEach(function(serie){
