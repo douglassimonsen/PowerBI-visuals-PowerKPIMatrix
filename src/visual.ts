@@ -217,10 +217,10 @@ export class PowerKPIMattrix implements powerbi.extensibility.visual.IVisual {
                 let newRow = new Array(rowLen).fill(null);
                 newRow[columnIndexs['date']] = row[0];
                 if(columnIndexs['rowBasedMetricNameColumn'] !== undefined){
-                    newRow[columnIndexs['rowBasedMetricNameColumn']] = row[1] || null;
+                    newRow[columnIndexs['rowBasedMetricNameColumn']] = row[1] === undefined ? null : row[1];
                 }
                 if(columnIndexs['category'] !== undefined){
-                    newRow[columnIndexs['category']] = row[2] || null;
+                    newRow[columnIndexs['category']] = row[2] === undefined ? null : row[2];
                 }
                 return newRow;
             }.bind(null, columnIndexs, rowLen))
@@ -229,6 +229,10 @@ export class PowerKPIMattrix implements powerbi.extensibility.visual.IVisual {
                 const colIndex = columnIndexs[valueColumns[i]]
                 if(colIndex !== undefined){
                     baseData.forEach(x => x[colIndex] = Number.EPSILON);
+                }
+                const sortIndex = columnIndexs['sortOrderColumn'];  // we assume we want blank data to come at the end
+                if(sortIndex !== undefined){
+                    baseData.forEach(x => x[sortIndex] = Number.MIN_SAFE_INTEGER);
                 }
             }
             this.converterOptions.dataView.table.rows.forEach(function(baseData, columnIndexs, row){
