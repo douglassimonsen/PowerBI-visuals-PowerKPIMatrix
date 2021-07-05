@@ -182,9 +182,16 @@ export class PowerKPIMattrix implements powerbi.extensibility.visual.IVisual {
 
         this.stateService.states.columnMapping.applyDefaultRows(columnSet[actualValueColumn.name]);
 
-        const actualValueCol = this.converterOptions.dataView.metadata.columns.find(x => Object.keys(x.roles).includes('actualValue'))?.index;
-        const categoryCol = this.converterOptions.dataView.metadata.columns.find(x => Object.keys(x.roles).includes('rowBasedMetricNameColumn'))?.index;
-        const dateCol = this.converterOptions.dataView.metadata.columns.find(x => Object.keys(x.roles).includes('date'))?.index;
+        const getIndex = (columns, colname) => columns.find(x => Object.keys(x.roles).includes(colname))?.index
+
+        const colInfo = this.converterOptions.dataView.metadata.columns;
+        const columnIndexs = {}
+        const baseColumns = ['rowBasedMetricNameColumn', 'date', 'category', 'sortOrderColumn'];
+        const valueColumns = ['actualValue', 'targetValue', 'secondComparisonValue', 'kpiIndicatorValue', 'kpiIndicatorIndex', 'secondKPIIndicatorValue', 'secondKPIIndicatorIndex'];
+        const columnList = baseColumns.concat(valueColumns);
+        for(let i=0;i<columnList.length;i++){
+            columnIndexs[columnList[i]] = getIndex(colInfo, columnList[i]);
+        }
 
         var rowLen: number;
         try{
@@ -192,34 +199,66 @@ export class PowerKPIMattrix implements powerbi.extensibility.visual.IVisual {
         } catch {
             rowLen = undefined;
         }
-        if(actualValueCol !== undefined && categoryCol !== undefined && dateCol !== undefined && rowLen !== undefined){
-            const allDates = Array.from(new Set(this.converterOptions.dataView.table.rows.map(x => x[dateCol])));
-            const allCats = Array.from(new Set(this.converterOptions.dataView.table.rows.map(x => x[categoryCol])));
-            let extraData = [];  // it would be silly to append in the loops because then we'd search through data we know couldn't match
-            for(let i=0;i<allDates.length;i++){
-                let dat = allDates[i];
-                for(let j=0;j<allCats.length;j++){
-                    let cat = allCats[j];
-                    if(!this.converterOptions.dataView.table.rows.some(x => x[dateCol] === dat && x[categoryCol] === cat)){
-                        let newRow = new Array(rowLen).fill(null);
-                        newRow[dateCol] = dat;
-                        newRow[categoryCol] = cat;
-                        newRow[actualValueCol] = Number.EPSILON;  // essentially zero, but won't be filtered
-                        extraData.push(newRow)
-                    }
-                }
+
+        function cartesian(first, ...rest){
+            if(rest.length === 0){
+                return first;
             }
-            this.converterOptions.dataView.table.rows = this.converterOptions.dataView.table.rows.concat(extraData);
+             // @ts-ignore
+            return first.flatMap(v => cartesian(...rest).map(c => [v].concat(c)));
         }
 
+        if(columnIndexs['date'] !== undefined && rowLen !== undefined){
+            const allDates = Array.from(new Set(this.converterOptions.dataView.table.rows.map(x => x[columnIndexs['date']])));
+            const allMetrics = Array.from(new Set(this.converterOptions.dataView.table.rows.map(x => x[columnIndexs['rowBasedMetricNameColumn']])));
+            const allCats = Array.from(new Set(this.converterOptions.dataView.table.rows.map(x => x[columnIndexs['category']])));
+            var baseData = cartesian(allDates, allMetrics, allCats);
+            baseData = baseData.map(function(columnIndexs, rowLen, row){
+                let newRow = new Array(rowLen).fill(null);
+                newRow[columnIndexs['date']] = row[0];
+                if(columnIndexs['rowBasedMetricNameColumn'] !== undefined){
+                    newRow[columnIndexs['rowBasedMetricNameColumn']] = row[1] || null;
+                }
+                if(columnIndexs['category'] !== undefined){
+                    newRow[columnIndexs['category']] = row[2] || null;
+                }
+                return newRow;
+            }.bind(null, columnIndexs, rowLen))
+
+            for(let i=0;i<valueColumns.length;i++){
+                const colIndex = columnIndexs[valueColumns[i]]
+                if(colIndex !== undefined){
+                    baseData.forEach(x => x[colIndex] = Number.EPSILON);
+                }
+            }
+            this.converterOptions.dataView.table.rows.forEach(function(baseData, columnIndexs, row){
+                var baseRowIndex = baseData.findIndex(function(columnIndexs, dataRow, baseDataRow){
+                    if(dataRow[columnIndexs['date']] !== baseDataRow[columnIndexs['date']]){
+                        return false;
+                    }
+                    if(columnIndexs['rowBasedMetricNameColumn'] !== undefined && dataRow[columnIndexs['rowBasedMetricNameColumn']] !== baseDataRow[columnIndexs['rowBasedMetricNameColumn']]){
+                        return false;
+                    }                    
+                    if(columnIndexs['category'] !== undefined && dataRow[columnIndexs['category']] !== baseDataRow[columnIndexs['category']]){
+                        return false;
+                    }
+                    return true;            
+                }.bind(null, columnIndexs, row));
+                baseData[baseRowIndex] = row;  // we replace the information of a base with the real data. Everything left will be zeroes.
+            }.bind(null, baseData, columnIndexs));
+            this.converterOptions.dataView.table.rows = baseData;
+        }
         const dataRepresentation: IDataRepresentation = this.dataDirector.convert(this.converterOptions);
         dataRepresentation.seriesArray.forEach(function(serie){
-            if(serie.currentValue === Number.EPSILON){
-                serie.currentValue = 0;
+            const updatingCols = ['currentValue', 'comparisonValue', 'secondComparisonValue', 'kpiIndicatorValue', 'secondKPIIndicatorValue'];
+            for(let i=0;i<updatingCols.length;i++){
+                if(serie[updatingCols[i]] === Number.EPSILON){
+                    serie[updatingCols[i]] = 0;
+                }    
             }
-            serie.points[0].points.forEach(function(point){
+            serie.points.forEach(x => x.points.forEach(function(point){
                 point.value = (point.value === Number.EPSILON) ? 0 : point.value;
-            })
+            }))
         })
         const isAdvancedEditModeTurnedOn: boolean = options.editMode === powerbi.EditMode.Advanced
             && dataRepresentation.isDataColumnBasedModel;
