@@ -182,6 +182,27 @@ export class PowerKPIMattrix implements powerbi.extensibility.visual.IVisual {
 
         this.stateService.states.columnMapping.applyDefaultRows(columnSet[actualValueColumn.name]);
 
+
+        /*
+        Problem:
+            1. PowerBI only returns rows with data. That is, if a bus breaks down on Jan, Feb, and Apr, then there will be no row associated with March.
+            2. KPI Matrix drops falsey values - 0, null, etc.
+
+        Solution:
+            1. Get the index of the column being used as the actualValue, targetValue, etc.
+                1. Warning! The table doesn't repeat, so a single column in the table can be responsible for multiple outputs
+                2. Because of 1, we blank the category column if it's the same as the rowBaseMetricName. Otherwise, the data will cartesianed twice by the same set of data.
+            2. We get the length of the rows. This visual will render even if there's no data and the rest of the code assumes everything's non-empty, so we need to check early.
+            3. Get a cartesian join of dates, metrics, and categories.
+                1. If the column doesn't exist, the map will return N undefineds. The set will reduce it to a single element, so it doesn't effect the cartesian join
+            4. For each row in the output of the cartesian join, we map the [date, metric, category] rows to their column positions in the original dataset. 
+            5. For each row in the original data, we search the cartesian join for a matching row on the (date, metric, category) columns, if the columns exist. We replace those rows in the cartesian join with the original data 
+            6. We handle falsey data (problem #2)
+                1. If any of the "value" columns have falsey values, we replace them with EPSILON. We choose this because any non-falsey number that we choose could be real data and EPSILON is definitionally the closest to zero.
+                2. We replace all the sort Values with the lowest possible number. I think this is wrong to do.
+            7. We let the visual run it's function that updates the dataRepresentation.
+            8. We go back and replace any EPSILONs with zeros, so the visual looks appealling. 
+        */
         const getIndex = (columns, colname) => columns.find(x => Object.keys(x.roles).includes(colname))?.index
 
         const colInfo = this.converterOptions.dataView.metadata.columns;
@@ -192,7 +213,9 @@ export class PowerKPIMattrix implements powerbi.extensibility.visual.IVisual {
         for(let i=0;i<columnList.length;i++){
             columnIndexs[columnList[i]] = getIndex(colInfo, columnList[i]);
         }
-
+        if(columnIndexs['rowBasedMetricNameColumn'] === columnIndexs['category']){ // otherwise this column gets squared in the cartesian join
+            columnIndexs['category'] = undefined;
+        }
         var rowLen: number;
         try{
             rowLen = this.converterOptions.dataView.table.rows[0].length;
@@ -225,16 +248,6 @@ export class PowerKPIMattrix implements powerbi.extensibility.visual.IVisual {
                 return newRow;
             }.bind(null, columnIndexs, rowLen))
 
-            for(let i=0;i<valueColumns.length;i++){
-                const colIndex = columnIndexs[valueColumns[i]]
-                if(colIndex !== undefined){
-                    baseData.forEach(x => x[colIndex] = Number.EPSILON);
-                }
-                const sortIndex = columnIndexs['sortOrderColumn'];  // we assume we want blank data to come at the end
-                if(sortIndex !== undefined){
-                    baseData.forEach(x => x[sortIndex] = Number.MIN_SAFE_INTEGER);
-                }
-            }
             this.converterOptions.dataView.table.rows.forEach(function(baseData, columnIndexs, row){
                 var baseRowIndex = baseData.findIndex(function(columnIndexs, dataRow, baseDataRow){
                     if(dataRow[columnIndexs['date']] !== baseDataRow[columnIndexs['date']]){
@@ -250,6 +263,25 @@ export class PowerKPIMattrix implements powerbi.extensibility.visual.IVisual {
                 }.bind(null, columnIndexs, row));
                 baseData[baseRowIndex] = row;  // we replace the information of a base with the real data. Everything left will be zeroes.
             }.bind(null, baseData, columnIndexs));
+
+            for(let i=0;i<valueColumns.length;i++){
+                const colIndex = columnIndexs[valueColumns[i]]
+                if(colIndex !== undefined){
+                    baseData.forEach(function(colIndex, x){
+                        if(!x[colIndex]){
+                            x[colIndex] = Number.EPSILON;
+                        }
+                    }.bind(null, colIndex));
+                }
+                const sortIndex = columnIndexs['sortOrderColumn'];  // we assume we want blank data to come at the end
+                if(sortIndex !== undefined){
+                    baseData.forEach(function(sortIndex, x){
+                        if(!x[sortIndex]){
+                            x[sortIndex] = Number.MIN_SAFE_INTEGER;
+                        }
+                    }.bind(null, sortIndex));
+                }
+            }
             this.converterOptions.dataView.table.rows = baseData;
         }
         const dataRepresentation: IDataRepresentation = this.dataDirector.convert(this.converterOptions);
@@ -261,7 +293,9 @@ export class PowerKPIMattrix implements powerbi.extensibility.visual.IVisual {
                 }    
             }
             serie.points.forEach(x => x.points.forEach(function(point){
-                point.value = (point.value === Number.EPSILON) ? 0 : point.value;
+                if(point.value === Number.EPSILON){
+                    point.value = 0;
+                }
             }))
         })
         const isAdvancedEditModeTurnedOn: boolean = options.editMode === powerbi.EditMode.Advanced
