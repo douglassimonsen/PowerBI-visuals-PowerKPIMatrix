@@ -1,0 +1,6 @@
+To test, go to the directory, run `pbiviz start`
+You need to enable it on the web
+
+To generate a new package, run `pbiviz package`. 
+Remember to update the version in package.json.
+The package will appear in the dist/ folder.

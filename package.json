@@ -1,6 +1,6 @@
 {
   "name": "powerbi-visuals-powerkpimattrix",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "description": "Monitor balanced scorecards and unlimited number of metrics and KPIs in a single, compact, easy to read list.",
   "scripts": {
     "start": "pbiviz start",
