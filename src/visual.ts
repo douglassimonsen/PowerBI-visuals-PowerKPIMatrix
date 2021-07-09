@@ -199,7 +199,7 @@ export class PowerKPIMattrix implements powerbi.extensibility.visual.IVisual {
             5. For each row in the original data, we search the cartesian join for a matching row on the (date, metric, category) columns, if the columns exist. We replace those rows in the cartesian join with the original data 
             6. We handle falsey data (problem #2)
                 1. If any of the "value" columns have falsey values, we replace them with EPSILON. We choose this because any non-falsey number that we choose could be real data and EPSILON is definitionally the closest to zero.
-                2. We replace all the sort Values with the lowest possible number. I think this is wrong to do.
+                2. We replace all the sort Values with 0, since it appears to take the mean of the numbers in a group.
             7. We let the visual run it's function that updates the dataRepresentation.
             8. We go back and replace any EPSILONs with zeros, so the visual looks appealling. 
         */
@@ -277,7 +277,7 @@ export class PowerKPIMattrix implements powerbi.extensibility.visual.IVisual {
                 if(sortIndex !== undefined){
                     baseData.forEach(function(sortIndex, x){
                         if(!x[sortIndex]){
-                            x[sortIndex] = Number.MIN_SAFE_INTEGER;
+                            x[sortIndex] = 0;
                         }
                     }.bind(null, sortIndex));
                 }
